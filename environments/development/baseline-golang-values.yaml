@@ -24,7 +24,7 @@ ingress:
   tls:
     - hosts:
         - golang.212.2.241.168.sslip.io
-      secretName: baseline-golang-app-tls-BROKEN-again_and
+      secretName: baseline-golang-app-tls
 resources:
   limits:
     cpu: 50m
