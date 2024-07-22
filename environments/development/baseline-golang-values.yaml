@@ -28,7 +28,7 @@ ingress:
 resources:
   limits:
     cpu: 50m
-    memory: 400Mi
+    memory: 300Mi
 autoscaling:
   enabled: false
   minReplicas: 2
