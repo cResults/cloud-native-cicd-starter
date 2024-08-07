@@ -8,7 +8,7 @@ notifications:
   secret:
     enabled: true
     items:
-      slack-token: xoxb-42100009030-7170599015633-H8yDmtobMYFxPFwO66usWgSI
+      slack-token: xoxb-foobar
   notifiers:
     service.slack: |
       token: $slack-token

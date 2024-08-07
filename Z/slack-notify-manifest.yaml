@@ -21,7 +21,7 @@ spec:
         image: curlimages/curl
         env:
           - name: SLACK_TOKEN
-            value: xoxb-42100009030-7170599015633-H8yDmtobMYFxPFwO66usWgSI
+            value: xoxb-foobar
         command: ["sh"]
         source: |
           if [[ {{inputs.parameters.WORKFLOW_STATUS}} == "Succeeded" ]]; then
@@ -46,7 +46,7 @@ spec:
         image: curlimages/curl
         env:
           - name: SLACK_TOKEN
-            value: xoxb-42100009030-7170599015633-H8yDmtobMYFxPFwO66usWgSI
+            value: xoxb-foobar
         command: ["sh"]
         # If any optional environment variables above were removed, remove them from the curl as well
         source: |
