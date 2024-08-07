@@ -1,0 +1,281 @@
+notifications:
+  enabled: true
+
+  # -- Argo CD dashboard url; used in place of {{.context.argocdUrl}} in templates
+  # @default -- `""` (defaults to https://`global.domain`)
+  argocdUrl: "https://localhost:57004"
+
+  secret:
+    enabled: true
+    items:
+      slack-token: xoxb-42100009030-7170599015633-H8yDmtobMYFxPFwO66usWgSI
+  notifiers:
+    service.slack: |
+      token: $slack-token
+    service.email: |
+      host: smtp.gmail.com
+      port: 587
+      from: SeeResultsMultiply@gmail.com
+      username: SeeResultsMultiply@gmail.com
+      password: $email-password
+
+  subscriptions: 
+    - recipients:
+      - slack:david-argo-notis
+      - email:SeeResultsMultiply@gmail.com
+      - email:david@krum.io
+      triggers:
+      - on-sync-status-unknown
+      - on-sync-running
+      - on-sync-succeeded
+      - on-sync-failed
+      - on-health-degraded
+      - on-deployed
+      ##- on-deleted
+      ##- on-created
+  triggers:
+    trigger.on-sync-status-unknown: |
+      - description: Application status is 'Unknown'
+        when: app.status.sync.status == 'Unknown'
+        send:
+        - app-sync-status-unknown
+    trigger.on-sync-running: |
+      - description: Application is being synced
+        when: app.status.operationState.phase in ['Running']
+        send:
+        - app-sync-running
+    trigger.on-sync-succeeded: |
+      - description: Application syncing has succeeded
+        when: app.status.operationState.phase in ['Succeeded']
+        send:
+        - app-sync-succeeded
+    trigger.on-sync-failed: |
+      - description: Application syncing has failed
+        when: app.status.operationState.phase in ['Error', 'Failed']
+        send:
+        - app-sync-failed
+    trigger.on-health-degraded: |
+      - description: Application has degraded
+        when: app.status.health.status == 'Degraded'
+        send:
+        - app-health-degraded
+    trigger.on-deployed: |
+      - description: Application is synced and healthy. Triggered once per commit.
+        oncePer: app.status.sync.revision
+        when: app.status.operationState.phase in ['Succeeded'] and app.status.health.status == 'Healthy'
+        send:
+        - app-deployed
+  templates:
+  
+    template.app-sync-status-unknown: |
+      email:
+        subject: "CD: Application {{.app.metadata.name}} sync status is 'Unknown'"
+      message: |
+        {{if eq .serviceType "slack"}}:exclamation:{{end}} CD: Application {{.app.metadata.name}} sync is 'Unknown'.
+        Application details: {{.context.argocdUrl}}/applications/{{.app.metadata.name}}.
+        {{if ne .serviceType "slack"}}
+        {{range $c := .app.status.conditions}}
+            * {{$c.message}}
+        {{end}}
+        {{end}}
+      slack:
+        attachments: |-
+          [{
+            "title": "{{ .app.metadata.name}}",
+            "title_link":"{{.context.argocdUrl}}/applications/{{.app.metadata.name}}",
+            "color": "#E96D76",
+            "fields": [
+            {
+              "title": "Sync Status",
+              "value": "{{.app.status.sync.status}}",
+              "short": true
+            },
+            {
+              "title": "Repository",
+              "value": "{{.app.spec.source.repoURL}}",
+              "short": true
+            }
+            {{range $index, $c := .app.status.conditions}}
+            {{if not $index}},{{end}}
+            {{if $index}},{{end}}
+            {
+              "title": "{{$c.type}}",
+              "value": "{{$c.message}}",
+              "short": true
+            }
+            {{end}}
+            ]
+          }]
+    template.app-sync-running: |
+      email:
+        subject: "CD: Application {{.app.metadata.name}} syncing Started."
+      message: |
+        CD: Application {{.app.metadata.name}} syncing Started at {{.app.status.operationState.startedAt}}.
+        Sync operation details are available at: {{.context.argocdUrl}}/applications/{{.app.metadata.name}}?operation=true .
+      slack:
+        attachments: |-
+          [{
+            "title": "{{ .app.metadata.name}}",
+            "title_link":"{{.context.argocdUrl}}/applications/{{.app.metadata.name}}",
+            "color": "#0DADEA",
+            "fields": [
+            {
+              "title": "Sync Status",
+              "value": "{{.app.status.sync.status}}",
+              "short": true
+            },
+            {
+              "title": "Repository",
+              "value": "{{.app.spec.source.repoURL}}",
+              "short": true
+            }
+            {{range $index, $c := .app.status.conditions}}
+            {{if not $index}},{{end}}
+            {{if $index}},{{end}}
+            {
+              "title": "{{$c.type}}",
+              "value": "{{$c.message}}",
+              "short": true
+            }
+            {{end}}
+            ]
+          }]
+    template.app-sync-succeeded: |
+      email:
+        subject: "CD: Application {{.app.metadata.name}} has been successfully synced."
+      message: |
+        {{if eq .serviceType "slack"}}:white_check_mark:{{end}} CD: Application {{.app.metadata.name}} has been successfully synced at {{.app.status.operationState.finishedAt}}.
+        Sync operation details are available at: {{.context.argocdUrl}}/applications/{{.app.metadata.name}}?operation=true .
+      slack:
+        attachments: |-
+          [{
+            "title": "{{ .app.metadata.name}}",
+            "title_link":"{{.context.argocdUrl}}/applications/{{.app.metadata.name}}",
+            "color": "#18be52",
+            "fields": [
+            {
+              "title": "Sync Status",
+              "value": "{{.app.status.sync.status}}",
+              "short": true
+            },
+            {
+              "title": "Repository",
+              "value": "{{.app.spec.source.repoURL}}",
+              "short": true
+            }
+            {{range $index, $c := .app.status.conditions}}
+            {{if not $index}},{{end}}
+            {{if $index}},{{end}}
+            {
+              "title": "{{$c.type}}",
+              "value": "{{$c.message}}",
+              "short": true
+            }
+            {{end}}
+            ]
+          }]
+    template.app-sync-failed: |
+      email:
+        subject: "CD: Application {{.app.metadata.name}} syncing Failed."
+      message: |
+        {{if eq .serviceType "slack"}}:exclamation:{{end}}  CD: Application {{.app.metadata.name}} syncing Failed at {{.app.status.operationState.finishedAt}} with the following error: {{.app.status.operationState.message}}.
+      slack:
+        attachments: |-
+          [{
+            "title": "{{ .app.metadata.name}}",
+            "title_link":"{{.context.argocdUrl}}/applications/{{.app.metadata.name}}",
+            "color": "#E96D76",
+            "fields": [
+            {
+              "title": "Sync Status",
+              "value": "{{.app.status.sync.status}}",
+              "short": true
+            },
+            {
+              "title": "Repository",
+              "value": "{{.app.spec.source.repoURL}}",
+              "short": true
+            }
+            {{range $index, $c := .app.status.conditions}}
+            {{if not $index}},{{end}}
+            {{if $index}},{{end}}
+            {
+              "title": "{{$c.type}}",
+              "value": "",
+              "short": false
+            }
+            {{end}}
+            ]
+          }]
+    template.app-health-degraded: |
+      email:
+        subject: "CD: Application {{.app.metadata.name}} has degraded."
+      message: |
+        {{if eq .serviceType "slack"}}:exclamation:{{end}} CD: Application {{.app.metadata.name}} has degraded.
+        Application details: {{.context.argocdUrl}}/applications/{{.app.metadata.name}}.
+      slack:
+        attachments: |-
+          [{
+            "title": "{{ .app.metadata.name}}",
+            "title_link": "{{.context.argocdUrl}}/applications/{{.app.metadata.name}}",
+            "color": "#f4c030",
+            "fields": [
+            {
+              "title": "Sync Status",
+              "value": "{{.app.status.sync.status}}",
+              "short": true
+            },
+            {
+              "title": "Repository",
+              "value": "{{.app.spec.source.repoURL}}",
+              "short": true
+            }
+            {{range $index, $c := .app.status.conditions}}
+            {{if not $index}},{{end}}
+            {{if $index}},{{end}}
+            {
+              "title": "{{$c.type}}",
+              "value": "{{$c.message}}",
+              "short": true
+            }
+            {{end}}
+            ]
+          }]
+    template.app-deployed: |
+      email:
+        subject: "CD: Application {{.app.metadata.name}} has a new version up and running."
+      message: |
+        {{if eq .serviceType "slack"}}:white_check_mark:{{end}} CD: Application {{.app.metadata.name}} has a new version up and running.
+      slack:
+        attachments: |
+          [{
+            "title": "{{ .app.metadata.name}}",
+            "title_link":"{{.context.argocdUrl}}/applications/{{.app.metadata.name}}",
+            "color": "#18be52",
+            "fields": [
+            {
+              "title": "Sync Status",
+              "value": "{{.app.status.sync.status}}",
+              "short": true
+            },
+            {
+              "title": "Repository",
+              "value": "{{.app.spec.source.repoURL}}",
+              "short": true
+            },
+            {
+              "title": "Revision",
+              "value": "{{.app.status.sync.revision}}",
+              "short": true
+            }
+            {{range $index, $c := .app.status.conditions}}
+            {{if not $index}},{{end}}
+            {{if $index}},{{end}}
+            {
+              "title": "{{$c.type}}",
+              "value": "{{$c.message}}",
+              "short": true
+            }
+            {{end}}
+            ]
+          }]

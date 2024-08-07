@@ -1,0 +1,11 @@
+apiVersion: argoproj.io/v1alpha1
+kind: EventSource
+metadata:
+  name: http-create-eventsource
+  namespace: argo-events
+spec:
+  webhook:
+    http:
+      port: "12000"
+      endpoint: /create
+      method: POST

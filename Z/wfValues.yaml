@@ -1,0 +1,125 @@
+server:
+  extraArgs:
+  - --auth-mode=server
+workflow:
+  serviceAccount:
+    name: awf-workflow-controller-sa
+controller:
+  workflowNamespaces:
+    - argo
+  workflowDefaults:
+    spec:
+      onExit: send-completion
+      templates:
+        - name: send-completion
+          script:
+            imagePullPolicy: "Always"
+            image: circleci/python:3.7
+            env:
+              - name: WORKFLOW_BASE_URL
+                value: "http://localhost:58366"
+              - name: WORKFLOW_NAMESPACE
+                value: "{{workflow.namespace}}"
+              - name: WORKFLOW_NAME
+                value: "{{workflow.name}}"
+              - name: APPLICATION_NAME
+                value: "MostAwesomeRepo"
+              - name: BRANCH_NAME
+                value: "MainStageBranch"
+              - name: WORKFLOW_STATUS
+                value: "{{workflow.status}}"
+              - name: WORKFLOW_DURATION
+                value: "{{workflow.duration}}"
+              - name: WORKFLOW_FAILURES
+                value: "{{workflow.failures}}"
+              - name: SLACK_CHANNEL
+                valueFrom:
+                  secretKeyRef:
+                    name: slack-channel
+                    key: channel        
+              - name: SLACK_TOKEN
+                valueFrom:
+                  secretKeyRef:
+                    name: slack-token
+                    key: token
+            command: ["bash"]
+            source: |
+              WORKFLOW_URL="$WORKFLOW_BASE_URL/workflows/$WORKFLOW_NAMESPACE/$WORKFLOW_NAME"
+              echo $WORKFLOW_URL
+              
+              SUBJECT="CI: Application $APPLICATION_NAME for branch $BRANCH_NAME $WORKFLOW_STATUS"
+              echo "SUBJECT: $SUBJECT"
+
+              TIME_CREATED="{{workflow.creationTimestamp}}"
+              echo "TIME_CREATED: $TIME_CREATED"
+
+              if [[ $WORKFLOW_STATUS == "Succeeded" ]]; then
+                myData="{'token':'$SLACK_TOKEN','channel':'$SLACK_CHANNEL','text':'$SUBJECT :checkered_flag:','attachments':[{'color':'#00ff00','blocks':[{'type':'section','fields':[{'type':'mrkdwn','text':'Workflow Name: $WORKFLOW_NAME'},{'type':'mrkdwn','text':'Duration: $WORKFLOW_DURATION Seconds'},{'type':'mrkdwn','text':'<$WORKFLOW_URL|Link to $WORKFLOW_NAME>'}]}]}]}"
+              else
+                echo "I'm here because something went wrong"
+
+                failureMessage=$(echo '{{workflow.failures}}' | jq -r 'fromjson | .[] | "\(.message)"')
+                failureMessage="\`\`\`$failureMessage\`\`\`"
+                echo "FAILURE MESSAGE: $failureMessage"
+                
+                myData="{'token':'$SLACK_TOKEN','channel':'$SLACK_CHANNEL','text':'$SUBJECT :face_with_head_bandage:','attachments':[{'color':'#ff0000','blocks':[{'type':'section','fields':[{'type':'mrkdwn','text':'*Workflow Name: $WORKFLOW_NAME-'},{'type':'mrkdwn','text':'Duration: $WORKFLOW_DURATION Seconds'},{'type':'mrkdwn','text':'<$WORKFLOW_URL|Link to $WORKFLOW_NAME>'}]},{'type':'section','text':{'type':'mrkdwn','text':'$failureMessage'}}]}]}"
+              fi
+              echo "MY_DATA: $myData"
+
+              # POST to Slack
+              curl -H "Content-type: application/json" \
+              --data "$myData" \
+              -H "Authorization: Bearer $SLACK_TOKEN" \
+              -X POST https://slack.com/api/chat.postMessage
+
+              echo "COMPLETED Slack POST, STARTING SMTP POST"
+              # SMTP server details
+              SMTP_SERVER="smtp.gmail.com"
+              SMTP_PORT="587"
+              USERNAME="SeeResultsMultiply@gmail.com"
+              PASSWORD="$email-password"
+              
+              # Email details
+              FROM="SeeResultsMultiply@gmail.com"
+              TO="SeeResultsMultiply@gmail.com"
+              SUBJECT="$SUBJECT at $TIME_CREATED"
+              echo "SUBJECT: $SUBJECT"
+
+              BODY=$(cat <<EOF
+              ${SUBJECT}
+              
+              Workflow Details:
+                  Name: $WORKFLOW_NAME
+                  Status: $WORKFLOW_STATUS
+                  Duration: $WORKFLOW_DURATION
+                  URL: $WORKFLOW_URL
+              EOF
+              )
+              
+              echo "FAILURE MESSAGE: $failureMessage"
+              if [[ $failureMessage != "" ]]; then
+                BODY=$(cat <<EOF
+              ${BODY}
+
+              Failure Message: 
+              ${failureMessage}
+ 
+              EOF
+              )
+              fi
+              
+              echo "SENDING EMAIL"
+              # Send email
+              curl -v --ssl-reqd \
+                   --url "smtp://$SMTP_SERVER:$SMTP_PORT" \
+                   --user "$USERNAME:$PASSWORD" \
+                   --mail-from "$FROM" \
+                   --mail-rcpt "$TO" \
+                   --upload-file - <<EOF
+              From: $FROM
+              To: $TO
+              Subject: =?utf-8?B?$SUBJECT?=
+              Content-Transfer-Encoding: 8bit
+              
+              $BODY
+              EOF

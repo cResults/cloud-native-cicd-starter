@@ -1,0 +1,99 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Workflow
+metadata:
+  generateName: hello-world-
+  labels:
+    workflows.argoproj.io/archive-strategy: "false"
+  annotations:
+    workflows.argoproj.io/description: |
+      This is a simple hello world example.
+spec:
+  serviceAccountName: awf-argo-workflows-workflow-controller
+  entrypoint: main
+  templates:
+  - name: main
+    dag:
+      tasks:
+      - name: send-beginning
+        template: send-beginning
+        arguments:
+          parameters:
+          - name: git_repo
+            value: "MostAwesomeRepo"
+          - name: git_branch
+            value: "MainStageBranch"
+      # - name: whalesay
+      #   template: whalesay
+      - name: generate-failure
+        template: generate-failure
+  - name: whalesay
+    container:
+      image: docker/whalesay:latest
+      command: [cowsay]
+      args: ["hello world"]
+  - name: generate-failure
+    container:
+      image: alpine:latest
+      command: [sh, -c]
+      args: ["exit 1"]
+  - name: send-beginning
+    inputs:
+      parameters:
+        - name: git_repo
+        - name: git_branch
+    script:
+      imagePullPolicy: "Always"
+      image: circleci/python:3.7
+      env:
+        - name: SLACK_CHANNEL
+          valueFrom:
+            secretKeyRef:
+              name: slack-channel
+              key: channel        
+        - name: SLACK_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: slack-token
+              key: token
+      command: ["bash"]
+      source: |
+        echo "ENTERED send-beginning"
+
+        APPLICATION_NAME="{{inputs.parameters.git_repo}}"
+        echo "APPLICATION_NAME: $APPLICATION_NAME"
+
+        BRANCH_NAME="{{inputs.parameters.git_branch}}"
+        echo "BRANCH_NAME: $BRANCH_NAME"
+
+        START_TIME="{{workflow.creationTimestamp}}"
+        echo "START_TIME: $START_TIME"
+
+        SUBJECT="CI: Application $APPLICATION_NAME for branch $$BRANCH_NAME Started."
+        echo "SUBJECT: $SUBJECT"
+        
+        curl -H "Content-type: application/json" \
+        --data "{ 'channel': '$SLACK_CHANNEL', 'text' : '$SUBJECT :star:', 'attachments': [{'color': '#ADD8E6','blocks': [ { 'type': 'section', 'fields': [{ 'type': 'mrkdwn', 'text': 'Starting Time: $START_TIME'}] } ] }]  }" \
+        -H "Authorization: Bearer $SLACK_TOKEN" \
+        -X POST https://slack.com/api/chat.postMessage
+
+        echo "COMPLETED Slack POST, STARTING SMTP POST"
+        
+        # Email details
+        SUBJECT="$SUBJECT at $START_TIME"
+        BODY=$SUBJECT
+        
+        echo "SENDING EMAIL"
+        # Send email
+        curl -v --ssl-reqd \
+             --url "smtps://smtp.gmail.com:587" \
+             --user "SeeResultsMultiply@gmail.com:$email-password" \
+             --mail-from "SeeResultsMultiply@gmail.com" \
+             --mail-rcpt "SeeResultsMultiply@gmail.com" \
+             --upload-file - <<EOF
+        From: SeeResultsMultiply@gmail.com
+        To: SeeResultsMultiply@gmail.com
+        Subject: $SUBJECT
+        Content-Transfer-Encoding: 8bit
+        
+        $BODY
+        EOF

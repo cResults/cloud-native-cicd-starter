@@ -1,0 +1,55 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Workflow
+metadata:
+  generateName: hello-world-
+  labels:
+    workflows.argoproj.io/archive-strategy: "false"
+  annotations:
+    workflows.argoproj.io/description: |
+      This is a simple hello world example.
+spec:
+  entrypoint: whalesay
+  onExit: send-completion
+  templates:
+  - name: whalesay
+    container:
+      image: docker/whalesay:latest
+      command: [cowsay]
+      args: ["hello world"]
+  - name: generate-failure
+    container:
+      image: alpine:latest
+      command: [sh, -c]
+      args: ["exit 1"]
+  - name: send-completion
+    script:
+      imagePullPolicy: "Always"
+      image: circleci/python:3.7
+      env:
+        - name: SLACK_CHANNEL
+          valueFrom:
+            secretKeyRef:
+              name: slack-channel
+              key: channel        
+        - name: SLACK_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: slack-token
+              key: token
+      command: ["bash"]
+      source: |
+        echo 'workflow.duration: {{workflow.duration}}'
+        echo 'duration: {{duration}}'
+
+        if [[ {{workflow.status}} == "Succeeded" ]]; then
+        myData="{ 'token': '$SLACK_TOKEN', 'channel': '$SLACK_CHANNEL', 'text' : 'Workflow {{workflow.status}} :checkered_flag:', 'attachments': [{'color': '#00ff00','blocks': [ { 'type': 'section', 'fields': [ { 'type': 'mrkdwn', 'text': '*Workflow Name: {{workflow.name}}' } ] } ] } ] }"
+        else
+        echo "I'm here because something went wrong"
+        failureMessage=$(echo '{{workflow.failures}}' | jq -r 'fromjson | .[] | "\(.message)"')
+        echo $failureMessage
+        myData="{'token':'$SLACK_TOKEN','channel':'$SLACK_CHANNEL','text':'Workflow {{workflow.status}} :face_with_head_bandage:','attachments':[{'color':'#ff0000','blocks':[{'type':'section','fields':[{'type':'mrkdwn','text':'*Workflow Name: {{workflow.name}}'}]},{'type':'section','text':{'type':'plain_text','text':'$failureMessage','emoji':false}}]}]}"
+        fi
+        curl -H "Content-type: application/json" \
+        --data "$myData" \
+        -H "Authorization: Bearer $SLACK_TOKEN" \
+        -X POST https://slack.com/api/chat.postMessage
